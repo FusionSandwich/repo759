@@ -3,14 +3,8 @@
 #include <cstdlib> // For std::atoi
 
 int main(int argc, char *argv[])
-{
-    // Check if exactly one command-line argument (N) is provided
-    if (argc != 2)
-    {
-        std::cerr << "Usage: " << argv[0] << " <N>" << std::endl;
-        return 1;
-    }
-
+{   // Basic error checking is not included for simplicity
+    // Assumed only one command-line argument is provided
     // Convert the command-line argument to an integer
     int N = std::atoi(argv[1]);
 
@@ -25,7 +19,7 @@ int main(int argc, char *argv[])
     }
     printf("\n"); // Newline after the ascending sequence
 
-    // Print integers from N to 0 (inclusive) in descending order using std::cout
+    // Print integers from N to 0 (inclusive) in descending order
     for (int i = N; i >= 0; --i)
     {
         std::cout << i;

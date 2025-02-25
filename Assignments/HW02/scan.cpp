@@ -12,7 +12,7 @@ void scan(const float *in, float *out, std::size_t n)
     out[0] = in[0];
 
     // Compute the inclusive prefix sums
-    for (int i = 1; i < n; i++)
+    for (std::size_t i = 1; i < n; i++)
     {
         out[i] = out[i - 1] + in[i];
     }

@@ -6,6 +6,7 @@
 #include <ctime>
 #include <chrono>
 #include <random>
+#include <omp.h>
 
 using std::chrono::high_resolution_clock;
 using std::chrono::duration;
@@ -18,6 +19,7 @@ const double board_size = 4.0; // Size of the board
 
 // Function to calculate acceleration due to gravity
 void getAcc(const double pos[][3], const double mass[], double acc[][3], int N) {
+    #pragma omp parallel for
     for (int i = 0; i < N; i++) {
         acc[i][0] = 0.0;
         acc[i][1] = 0.0;
@@ -37,41 +39,44 @@ void getAcc(const double pos[][3], const double mass[], double acc[][3], int N) 
     }
 }
 
-// Save positions to a CSV file
-// void savePositionsToCSV(const double pos[][3], int N, int step, const std::string &filename) {
-//     std::ofstream file;
-//     file.open(filename, std::ios_base::app);
-//     if (!file.is_open()) {
-//         std::cerr << "Error: Unable to open " << filename << " for writing!" << std::endl;
-//         return;
-//     }
-//     file << step << ",[";
-//     for (int i = 0; i < N; i++) {
-//         file << "[" << pos[i][0] << "," << pos[i][1] << "," << pos[i][2] << "]";
-//         if (i < N - 1) file << ",";
-//     }
-//     file << "]\n";
-//     file.close();
-// }
+// For debug: save positions to a CSV file
+void savePositionsToCSV(const double pos[][3], int N, int step, const std::string &filename) {
+    std::ofstream file;
+    file.open(filename, std::ios_base::app);
+    if (file.is_open()) {
+        file << step << ",[";
+        for (int i = 0; i < N; i++) {
+            if (i != N - 1)
+                file << "[" << pos[i][0] << "," << pos[i][1] << "," << pos[i][2] << "],";
+            else
+                file << "[" << pos[i][0] << "," << pos[i][1] << "," << pos[i][2] << "]";
+        }
+        file << "]\n";
+        file.close();
+    } else {
+        std::cerr << "Unable to open file!" << std::endl;
+    }
+}
 
 int main(int argc, char *argv[]) {
-    high_resolution_clock::time_point start = high_resolution_clock::now();
+    high_resolution_clock::time_point start;
+    high_resolution_clock::time_point end;
+    duration<double, std::milli> duration_sec;
+    start = high_resolution_clock::now();
 
-    if (argc != 3) {
-        std::cerr << "Usage: " << argv[0] << " <number_of_particles> <simulation_end_time>" << std::endl;
+    if (argc != 4) {
+        std::cerr << "Usage: " << argv[0] << " <number_of_particles> <simulation_end_time> <num_threads>" << std::endl;
         return 1;
     }
 
     int N = std::stoi(argv[1]);
     double tEnd = std::stod(argv[2]);
-    std::string filename = "positions.csv";
+    int num_threads = std::stoi(argv[3]);
+    omp_set_num_threads(num_threads);
 
-    // Clear the file before starting
-    std::ofstream file(filename, std::ofstream::out | std::ofstream::trunc);
-    if (!file.is_open()) {
-        std::cerr << "Error: Unable to clear " << filename << "!" << std::endl;
-        return 1;
-    }
+    std::string filename = "positions.csv";
+    std::ofstream file;
+    file.open(filename, std::ofstream::out | std::ofstream::trunc);
     file.close();
 
     double* mass = new double[N];
@@ -118,18 +123,21 @@ int main(int argc, char *argv[]) {
 
     for (int step = 0; step < Nt; step++) {
         // (1/2) kick
+        #pragma omp parallel for
         for (int i = 0; i < N; i++) {
             vel[i][0] += acc[i][0] * dt / 2.0;
             vel[i][1] += acc[i][1] * dt / 2.0;
             vel[i][2] += acc[i][2] * dt / 2.0;
         }
         // drift
+        #pragma omp parallel for
         for (int i = 0; i < N; i++) {
             pos[i][0] += vel[i][0] * dt;
             pos[i][1] += vel[i][1] * dt;
             pos[i][2] += vel[i][2] * dt;
         }
         // ensure particles stay within the board limits
+        #pragma omp parallel for
         for (int i = 0; i < N; i++) {
             for (int dim = 0; dim < 3; dim++) {
                 if (pos[i][dim] > board_size) pos[i][dim] = board_size;
@@ -139,6 +147,7 @@ int main(int argc, char *argv[]) {
         // update accelerations
         getAcc(pos, mass, acc, N);
         // (1/2) kick
+        #pragma omp parallel for
         for (int i = 0; i < N; i++) {
             vel[i][0] += acc[i][0] * dt / 2.0;
             vel[i][1] += acc[i][1] * dt / 2.0;
@@ -146,7 +155,7 @@ int main(int argc, char *argv[]) {
         }
         // update time
         t += dt;
-        // Save positions at each step
+        // Optional: Uncomment for debugging
         // savePositionsToCSV(pos, N, step, filename);
     }
 
@@ -155,9 +164,9 @@ int main(int argc, char *argv[]) {
     delete[] vel;
     delete[] acc;
 
-    high_resolution_clock::time_point end = high_resolution_clock::now();
-    duration<double, std::milli> duration_sec = std::chrono::duration_cast<duration<double, std::milli>>(end - start);
-    std::cout << "time: " << duration_sec.count() << "ms\n";
+    end = high_resolution_clock::now();
+    duration_sec = std::chrono::duration_cast<duration<double, std::milli>>(end - start);
+    std::cout << "threads: " << num_threads << " time: " << duration_sec.count() << "ms\n";
 
     return 0;
 }

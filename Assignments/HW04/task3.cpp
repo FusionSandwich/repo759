@@ -1,8 +1,3 @@
-Collapse
-
-Wrap
-
-Copy
 #include <cstddef>
 #include <iostream>
 #include <fstream>

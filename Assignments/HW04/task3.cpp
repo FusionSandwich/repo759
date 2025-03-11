@@ -7,7 +7,7 @@
 #include <chrono>
 #include <random>
 #include <omp.h>
-#include <string>  // For std::string
+#include <string>
 
 using std::chrono::high_resolution_clock;
 using std::chrono::duration;
@@ -78,30 +78,92 @@ void getAcc(const double pos[][3], const double mass[], double acc[][3], int N, 
             }
         }
     } else {
-        std::cerr << "Error: Unknown scheduling type '" << schedule << "'" << std::endl;
+        std::cerr << "Error: Unknown scheduling type '" << schedule << "'. Use 'static', 'dynamic', or 'guided'." << std::endl;
         exit(1);
     }
 }
 
+// Optional: Save positions to a CSV file (commented out for performance runs)
+void savePositionsToCSV(const double pos[][3], int N, int step, const std::string &filename) {
+    std::ofstream file;
+    file.open(filename, std::ios_base::app);
+    if (!file.is_open()) {
+        std::cerr << "Error: Unable to open " << filename << " for writing!" << std::endl;
+        return;
+    }
+    file << step << ",[";
+    for (int i = 0; i < N; i++) {
+        file << "[" << pos[i][0] << "," << pos[i][1] << "," << pos[i][2] << "]";
+        if (i < N - 1) file << ",";
+    }
+    file << "]\n";
+    file.close();
+}
+
 int main(int argc, char *argv[]) {
+    high_resolution_clock::time_point start = high_resolution_clock::now();
+
+    // Check command-line arguments
     if (argc != 5) {
         std::cerr << "Usage: " << argv[0] << " <number_of_particles> <simulation_end_time> <num_threads> <schedule_type>" << std::endl;
         return 1;
     }
 
+    // Parse command-line arguments
     int N = std::stoi(argv[1]);            // Number of particles
     double tEnd = std::stod(argv[2]);      // Simulation end time
     int num_threads = std::stoi(argv[3]);  // Number of threads
     std::string schedule = argv[4];        // Scheduling type
 
+    // Set number of OpenMP threads
     omp_set_num_threads(num_threads);
 
-    // Assume pos, vel, acc, mass arrays are declared and initialized here
-    // double pos[N][3], vel[N][3], acc[N][3], mass[N];
-    // ... (initialization code) ...
+    // Allocate dynamic arrays
+    double* mass = new double[N];
+    double(*pos)[3] = new double[N][3];
+    double(*vel)[3] = new double[N][3];
+    double(*acc)[3] = new double[N][3];
 
+    // Random number generation
+    std::mt19937 generator(std::random_device{}());
+    std::uniform_real_distribution<double> uniform_dist(0.0, 1.0);
+    std::normal_distribution<double> normal_dist(0.0, 1.0);
+
+    // Initialize particles
     double t = 0.0;
-    int Nt = static_cast<int>(tEnd / dt + 0.5);  // Number of time steps
+    for (int i = 0; i < N; i++) {
+        mass[i] = uniform_dist(generator);
+        pos[i][0] = normal_dist(generator);
+        pos[i][1] = normal_dist(generator);
+        pos[i][2] = normal_dist(generator);
+        vel[i][0] = normal_dist(generator);
+        vel[i][1] = normal_dist(generator);
+        vel[i][2] = normal_dist(generator);
+    }
+
+    // Convert to center-of-mass frame
+    double velCM[3] = {0.0, 0.0, 0.0};
+    double totalMass = 0.0;
+    for (int i = 0; i < N; i++) {
+        velCM[0] += vel[i][0] * mass[i];
+        velCM[1] += vel[i][1] * mass[i];
+        velCM[2] += vel[i][2] * mass[i];
+        totalMass += mass[i];
+    }
+    velCM[0] /= totalMass;
+    velCM[1] /= totalMass;
+    velCM[2] /= totalMass;
+    for (int i = 0; i < N; i++) {
+        vel[i][0] -= velCM[0];
+        vel[i][1] -= velCM[1];
+        vel[i][2] -= velCM[2];
+    }
+
+    // Initial accelerations
+    getAcc(pos, mass, acc, N, schedule);
+
+    // Number of timesteps
+    int Nt = static_cast<int>(tEnd / dt + 0.5);
 
     // Main simulation loop
     for (int step = 0; step < Nt; step++) {
@@ -137,16 +199,20 @@ int main(int argc, char *argv[]) {
             vel[i][2] += acc[i][2] * dt / 2.0;
         }
         t += dt;
+        // Optional: Uncomment for debugging
+        // savePositionsToCSV(pos, N, step, "positions.csv");
     }
 
+    // Clean up memory
     delete[] mass;
     delete[] pos;
     delete[] vel;
     delete[] acc;
 
-    end = high_resolution_clock::now();
-    duration_sec = std::chrono::duration_cast<duration<double, std::milli>>(end - start);
-    std::cout << "threads: " << num_threads << " time: " << duration_sec.count() << "ms\n";
+    // Timing
+    high_resolution_clock::time_point end = high_resolution_clock::now();
+    duration<double, std::milli> duration_sec = std::chrono::duration_cast<duration<double, std::milli>>(end - start);
+    std::cout << "threads: " << num_threads << " schedule: " << schedule << " time: " << duration_sec.count() << "ms\n";
 
     return 0;
 }

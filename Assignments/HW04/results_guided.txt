@@ -1,0 +1,9 @@
+Running with guided scheduling
+threads: 1 schedule: guided time: 38586.6ms
+threads: 2 schedule: guided time: 19345.7ms
+threads: 3 schedule: guided time: 13119.8ms
+threads: 4 schedule: guided time: 9878.6ms
+threads: 5 schedule: guided time: 11296.1ms
+threads: 6 schedule: guided time: 10957.4ms
+threads: 7 schedule: guided time: 10443ms
+threads: 8 schedule: guided time: 9940.44ms

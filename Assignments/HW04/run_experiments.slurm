@@ -2,7 +2,7 @@
 #SBATCH --job-name=task4
 #SBATCH --output=experiment_%j.out
 #SBATCH --error=experiment_%j.err
-#SBATCH --time=00:10:00
+#SBATCH --time=00:30:00
 #SBATCH --cpus-per-task=8
 #SBATCH --partition=instruction
 

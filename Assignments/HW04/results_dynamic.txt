@@ -1,0 +1,9 @@
+Running with dynamic scheduling
+threads: 1 schedule: dynamic time: 38690ms
+threads: 2 schedule: dynamic time: 43477.7ms
+threads: 3 schedule: dynamic time: 41905ms
+threads: 4 schedule: dynamic time: 33938.6ms
+threads: 5 schedule: dynamic time: 32772.1ms
+threads: 6 schedule: dynamic time: 28820.4ms
+threads: 7 schedule: dynamic time: 25616.7ms
+threads: 8 schedule: dynamic time: 23300.9ms

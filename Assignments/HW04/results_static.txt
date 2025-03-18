@@ -1,0 +1,9 @@
+Running with static scheduling
+threads: 1 schedule: static time: 38593.4ms
+threads: 2 schedule: static time: 19390.3ms
+threads: 3 schedule: static time: 12947.3ms
+threads: 4 schedule: static time: 9724.43ms
+threads: 5 schedule: static time: 15524.2ms
+threads: 6 schedule: static time: 12943.3ms
+threads: 7 schedule: static time: 11129.9ms
+threads: 8 schedule: static time: 9736.94ms

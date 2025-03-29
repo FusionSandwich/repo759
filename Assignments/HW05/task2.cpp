@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include <ctime>
 #include <cuda_runtime.h>
+#include <random>
 
 __global__ void computeKernel(int *dA, int a) {
     // Compute the global thread index: 0 <= idx < 16
@@ -12,11 +13,11 @@ __global__ void computeKernel(int *dA, int a) {
 }
 
 int main() {
-    // Seed the random number generator and generate a random integer 'a'
-    std::srand(static_cast<unsigned>(std::time(nullptr)));
-    int a = std::rand() % 10; // Random integer in the range [0, 9]
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> dist(0, 9);
+    int a = dist(gen);
     std::cout << "Random a: " << a << "\n";
-
     const int numElements = 16;
     int *dA;
     // Allocate device memory for 16 integers

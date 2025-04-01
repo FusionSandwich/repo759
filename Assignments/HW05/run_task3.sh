@@ -3,8 +3,9 @@
 #SBATCH --output=plot_task3_%j.out
 #SBATCH --error=plot_task3_%j.err
 #SBATCH --time=00:30:00
-#SBATCH --cpus-per-task=8
-#SBATCH --gres=gpu:1
+#SBATCH --ntasks=1
+#SBATCH --gpus-per-task=1
+#SBATCH --cpus-per-task=1
 #SBATCH --partition=instruction
 
 module load nvidia/cuda/11.6.0

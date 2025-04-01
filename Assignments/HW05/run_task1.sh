@@ -3,10 +3,12 @@
 #SBATCH --output=task1_%j.out
 #SBATCH --error=task1_%j.err
 #SBATCH --time=00:00:50
-#SBATCH --cpus-per-task=8
-#SBATCH --gres=gpu:1
+#SBATCH --ntasks=1
+#SBATCH --gpus-per-task=1
+#SBATCH --cpus-per-task=1
 #SBATCH --partition=instruction
 
+# Could use 11.8.0 also
 module load nvidia/cuda/11.6.0
 
 # Optional: check the nvcc version to ensure the module loaded correctly

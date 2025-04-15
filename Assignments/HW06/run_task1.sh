@@ -1,81 +1,65 @@
 #!/bin/bash
+#SBATCH --job-name=plot_task1 # Adjusted name slightly to match task
+#SBATCH --output=task1_results_%j.out # Output file for results
+#SBATCH --error=task1_errors_%j.err  # Error file
+#SBATCH --time=00:30:00
+#SBATCH --ntasks=1
+#SBATCH --gpus-per-task=1
+#SBATCH --cpus-per-task=1
+#SBATCH --partition=instruction
+#SBATCH --mem=4G # Request some memory, adjust if needed
 
-# Load the CUDA module
-module load nvidia/cuda
-# Check if module load was successful
-if [ $? -ne 0 ]; then
-    echo "Error: Failed to load nvidia/cuda module."
-    exit 1
-fi
+# Load necessary modules [cite: 5]
+module load nvidia/cuda/11.8
 
-# Define the threads per block values
-TPB1=1024
-TPB2=512 # Choose your second value here
-
-# Output data files
-DATA_FILE1="task1_times_${TPB1}.dat"
-DATA_FILE2="task1_times_${TPB2}.dat"
-PLOT_FILE="task1.pdf"
-
-# Clean previous data files
-rm -f $DATA_FILE1 $DATA_FILE2 $PLOT_FILE task1
-
-echo "Compiling task1..."
-# Compile task1.cu and matmul.cu [cite: 15]
+# Compile the code [cite: 15]
 nvcc task1.cu matmul.cu -Xcompiler -O3 -Xcompiler -Wall -Xptxas -O3 -std=c++17 -o task1
+
+# Check if compilation was successful
 if [ $? -ne 0 ]; then
-    echo "Error: Compilation failed."
-    exit 1
+  echo "Compilation failed!"
+  exit 1
 fi
-echo "Compilation successful."
 
-echo "Running experiments for threads_per_block = $TPB1..."
-echo "# N   Time(ms)" > $DATA_FILE1 # Add header
-# Loop through n = 2^5 to 2^14 [cite: 16]
-for (( p=5; p<=14; p++ )); do
-    n=$((2**p))
-    echo "Running with n = $n, threads = $TPB1"
-    # Run the executable and capture the second line of output (time)
-    output=$(./task1 $n $TPB1)
-    if [ $? -ne 0 ]; then
-        echo "Error: Execution failed for n=$n, threads=$TPB1"
-        continue # Skip this data point
-    fi
-    # Extract the second line (timing)
-    time_ms=$(echo "$output" | sed -n '2p')
-    echo "$n $time_ms" >> $DATA_FILE1
-    echo "  Time: $time_ms ms"
+# Define threads per block values
+THREADS_1=1024
+THREADS_2=512 # Choose another value, e.g., 512 [cite: 16]
+
+# Output file names based on threads_per_block
+OUTPUT_FILE_1="results_t${THREADS_1}.txt"
+OUTPUT_FILE_2="results_t${THREADS_2}.txt"
+
+# Clear previous results files
+> $OUTPUT_FILE_1
+> $OUTPUT_FILE_2
+
+echo "Running with threads_per_block = ${THREADS_1}"
+echo "N Time(ms)" > $OUTPUT_FILE_1 # Add header
+# Loop through matrix sizes n=2^5 to 2^14 [cite: 16]
+for i in {5..14}; do
+  n=$((2**i))
+  echo "Running task1 for n = $n with ${THREADS_1} threads..."
+  # Run the executable and capture the time (second line of output)
+  output=$(./task1 $n $THREADS_1)
+  time_ms=$(echo "$output" | tail -n 1)
+  echo "$n $time_ms" >> $OUTPUT_FILE_1
+  echo "Last element: $(echo "$output" | head -n 1), Time: ${time_ms} ms"
 done
 
-echo "Running experiments for threads_per_block = $TPB2..."
-echo "# N   Time(ms)" > $DATA_FILE2 # Add header
-# Loop through n = 2^5 to 2^14 [cite: 16]
-for (( p=5; p<=14; p++ )); do
-    n=$((2**p))
-    echo "Running with n = $n, threads = $TPB2"
-    # Run the executable and capture the second line of output (time)
-    output=$(./task1 $n $TPB2)
-    if [ $? -ne 0 ]; then
-        echo "Error: Execution failed for n=$n, threads=$TPB2"
-        continue # Skip this data point
-    fi
-     # Extract the second line (timing)
-    time_ms=$(echo "$output" | sed -n '2p')
-    echo "$n $time_ms" >> $DATA_FILE2
-     echo "  Time: $time_ms ms"
+echo "Running with threads_per_block = ${THREADS_2}"
+echo "N Time(ms)" > $OUTPUT_FILE_2 # Add header
+# Loop through matrix sizes n=2^5 to 2^14
+for i in {5..14}; do
+  n=$((2**i))
+  echo "Running task1 for n = $n with ${THREADS_2} threads..."
+   # Run the executable and capture the time (second line of output)
+  output=$(./task1 $n $THREADS_2)
+  time_ms=$(echo "$output" | tail -n 1)
+  echo "$n $time_ms" >> $OUTPUT_FILE_2
+   echo "Last element: $(echo "$output" | head -n 1), Time: ${time_ms} ms"
 done
 
-echo "Data collection complete."
-echo "Data saved to $DATA_FILE1 and $DATA_FILE2"
+echo "Job finished. Results saved in ${OUTPUT_FILE_1} and ${OUTPUT_FILE_2}"
 
-# Optional: Call python script to plot if python/matplotlib available
-# echo "Generating plot..."
-# module load python # Load python if needed
-# python plot_task1.py
-# if [ $? -ne 0 ]; then
-#    echo "Error: Plot generation failed."
-# else
-#    echo "Plot saved as $PLOT_FILE"
-# fi
-
-exit 0
+# The plotting script plot_task1.py should be run locally
+# after transferring the results_t*.txt files.

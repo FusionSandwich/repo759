@@ -1,6 +1,6 @@
 #include "matmul.cuh"
 #include <cuda_runtime.h>
-
+#include <stdio.h> 
 // Computes the matrix product of A and B, storing the result in C.
 // Each thread should compute _one_ element of output.
 // Does not use shared memory for this problem.

@@ -1,0 +1,4 @@
+Running experiments for threads per block = 1024
+Running experiments for threads per block = 512
+Data collection complete. Data files (data_1024.txt and data_512.txt) have been generated.
+Please transfer these data files to a system with Python and run 'python3 plot_task2.py' to generate the plot.

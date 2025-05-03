@@ -1,123 +1,239 @@
-// File: task1.cu
-// Test program for tiled matrix multiplication functions.
-
-#include <iostream>
-#include <vector>
-#include <cstdlib> // For atoi, EXIT_FAILURE, EXIT_SUCCESS
+#include "matmul.cuh"
 #include <cuda_runtime.h>
-#include "matmul.cuh" // Includes the declarations for matmul_1, matmul_2, matmul_3
+#include <iostream>
+#include <random>
+#include <cstdlib>
 
-// Helper function to check CUDA errors
-void checkCuda(cudaError_t result) {
-    if (result != cudaSuccess) {
-        fprintf(stderr, "CUDA Error: %s\n", cudaGetErrorString(result));
+// Function to check CUDA errors
+#define CHECK_CUDA_ERROR(val) check_cuda((val), #val, __FILE__, __LINE__)
+void check_cuda(cudaError_t result, const char* func, const char* file, int line) {
+    if (result) {
+        std::cerr << "CUDA error at " << file << ":" << line << " code=" << static_cast<unsigned int>(result)
+                  << " \"" << func << "\" " << cudaGetErrorString(result) << std::endl;
         exit(EXIT_FAILURE);
     }
 }
 
-// Template function to initialize matrices
+// Function to initialize matrices with consistent values across data types
 template <typename T>
-void initializeMatrices(T* A, T* B, size_t n) {
-    for (size_t i = 0; i < n; ++i) {
-        for (size_t j = 0; j < n; ++j) {
-            // Simple initialization for demonstration
-            // In a real test, you might use random numbers or other patterns
-            if constexpr (std::is_integral_v<T>) {
-                A[i * n + j] = static_cast<T>(i + j + 1); // Example integer init
-                B[i * n + j] = static_cast<T>(i - j + 1); // Example integer init
-            } else {
-                A[i * n + j] = static_cast<T>(i + j + 1.1); // Example floating point init
-                B[i * n + j] = static_cast<T>(i - j + 1.1); // Example floating point init
-            }
-        }
+void initialize_matrix(T* matrix, const int* values, unsigned int n) {
+    for (unsigned int i = 0; i < n * n; ++i) {
+        matrix[i] = static_cast<T>(values[i]);
     }
 }
 
-
-// Template function to run matrix multiplication test
-template <typename T>
-void runMatmulTest(const char* typeName, void (*matmul_func)(const T*, const T*, T*, unsigned int, unsigned int),
-                   unsigned int n, unsigned int block_dim) {
-    size_t matrix_size = (size_t)n * n; // Use size_t for potentially large sizes
-    size_t bytes = matrix_size * sizeof(T);
-
-    // Allocate managed memory for A, B, C
-    // Managed memory is accessible from both host and device
-    T *A_managed, *B_managed, *C_managed;
-    checkCuda(cudaMallocManaged(&A_managed, bytes));
-    checkCuda(cudaMallocManaged(&B_managed, bytes));
-    checkCuda(cudaMallocManaged(&C_managed, bytes)); // C will store the result
-
-    // Initialize matrices A and B on the host using the managed pointers
-    initializeMatrices(A_managed, B_managed, n);
-
-    // Create CUDA events for timing
-    cudaEvent_t start, stop;
-    checkCuda(cudaEventCreate(&start));
-    checkCuda(cudaEventCreate(&stop));
-
-    // Record start event
-    checkCuda(cudaEventRecord(start));
-
-    // Call the specific matrix multiplication function
-    matmul_func(A_managed, B_managed, C_managed, n, block_dim);
-
-    // Record stop event
-    checkCuda(cudaEventRecord(stop));
-
-    // Wait for the stop event to complete
-    checkCuda(cudaEventSynchronize(stop));
-
-    // Calculate elapsed time
-    float milliseconds = 0;
-    checkCuda(cudaEventElapsedTime(&milliseconds, start, stop));
-
-    // Print results: first element, last element, time
-    // Accessing managed memory directly from host after device sync
-    if (matrix_size > 0) {
-         std::cout << C_managed[0] << std::endl;
-         std::cout << C_managed[matrix_size - 1] << std::endl;
-    } else {
-         std::cout << "Matrix size is 0" << std::endl;
-         std::cout << "Matrix size is 0" << std::endl;
-    }
-    std::cout << milliseconds << std::endl;
-
-
-    // Cleanup
-    checkCuda(cudaEventDestroy(start));
-    checkCuda(cudaEventDestroy(stop));
-    checkCuda(cudaFree(A_managed));
-    checkCuda(cudaFree(B_managed));
-    checkCuda(cudaFree(C_managed));
-}
-
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
+    // Check command line arguments
     if (argc != 3) {
         std::cerr << "Usage: " << argv[0] << " n block_dim" << std::endl;
-        return EXIT_FAILURE;
+        return 1;
     }
-
+    
     // Parse command line arguments
-    unsigned int n = atoi(argv[1]);
-    unsigned int block_dim = atoi(argv[2]);
-
-    if (n <= 0 || block_dim <= 0) {
-         std::cerr << "Error: n and block_dim must be positive integers." << std::endl;
-         return EXIT_FAILURE;
+    unsigned int n = std::atoi(argv[1]);
+    unsigned int block_dim = std::atoi(argv[2]);
+    
+    // Allocate host memory for source values (integers)
+    int* values = new int[n * n];
+    
+    // Generate random values with fixed seed for reproducibility
+    std::mt19937 gen(42);
+    std::uniform_int_distribution<int> dist(-10, 10);
+    for (unsigned int i = 0; i < n * n; ++i) {
+        values[i] = dist(gen);
     }
-     if (block_dim > 32) {
-         // Based on the static shared memory allocation in matmul.cu
-         // Adjust if matmul.cu changes (e.g., uses dynamic shared memory)
-         std::cerr << "Warning: block_dim > 32 may exceed static shared memory allocation in matmul_kernel." << std::endl;
-         // Consider adding a hard exit if required by assignment constraints or kernel implementation.
-     }
-
-
-    // Run tests for int, float, and double [cite: 14]
-    runMatmulTest<int>("int", matmul_1, n, block_dim);
-    runMatmulTest<float>("float", matmul_2, n, block_dim);
-    runMatmulTest<double>("double", matmul_3, n, block_dim);
-
-    return EXIT_SUCCESS;
+    
+    // ===== Test for int matrices =====
+    {
+        // Allocate host memory
+        int *h_A = new int[n * n];
+        int *h_B = new int[n * n];
+        int *h_C = new int[n * n];
+        
+        // Initialize matrices
+        initialize_matrix(h_A, values, n);
+        initialize_matrix(h_B, values, n);
+        
+        // Allocate device memory
+        int *d_A, *d_B, *d_C;
+        CHECK_CUDA_ERROR(cudaMalloc(&d_A, n * n * sizeof(int)));
+        CHECK_CUDA_ERROR(cudaMalloc(&d_B, n * n * sizeof(int)));
+        CHECK_CUDA_ERROR(cudaMalloc(&d_C, n * n * sizeof(int)));
+        
+        // Copy data to device
+        CHECK_CUDA_ERROR(cudaMemcpy(d_A, h_A, n * n * sizeof(int), cudaMemcpyHostToDevice));
+        CHECK_CUDA_ERROR(cudaMemcpy(d_B, h_B, n * n * sizeof(int), cudaMemcpyHostToDevice));
+        
+        // Create CUDA events for timing
+        cudaEvent_t start, stop;
+        CHECK_CUDA_ERROR(cudaEventCreate(&start));
+        CHECK_CUDA_ERROR(cudaEventCreate(&stop));
+        
+        // Start timer
+        CHECK_CUDA_ERROR(cudaEventRecord(start));
+        
+        // Call the matrix multiplication function for int
+        matmul_1(d_A, d_B, d_C, n, block_dim);
+        
+        // Stop timer
+        CHECK_CUDA_ERROR(cudaEventRecord(stop));
+        CHECK_CUDA_ERROR(cudaEventSynchronize(stop));
+        
+        // Calculate elapsed time
+        float milliseconds = 0;
+        CHECK_CUDA_ERROR(cudaEventElapsedTime(&milliseconds, start, stop));
+        
+        // Copy result back to host
+        CHECK_CUDA_ERROR(cudaMemcpy(h_C, d_C, n * n * sizeof(int), cudaMemcpyDeviceToHost));
+        
+        // Print the first and last elements of the result
+        std::cout << h_C[0] << std::endl;
+        std::cout << h_C[n * n - 1] << std::endl;
+        std::cout << milliseconds << std::endl;
+        
+        // Free device memory
+        CHECK_CUDA_ERROR(cudaFree(d_A));
+        CHECK_CUDA_ERROR(cudaFree(d_B));
+        CHECK_CUDA_ERROR(cudaFree(d_C));
+        
+        // Destroy CUDA events
+        CHECK_CUDA_ERROR(cudaEventDestroy(start));
+        CHECK_CUDA_ERROR(cudaEventDestroy(stop));
+        
+        // Free host memory
+        delete[] h_A;
+        delete[] h_B;
+        delete[] h_C;
+    }
+    
+    // ===== Test for float matrices =====
+    {
+        // Allocate host memory
+        float *h_A = new float[n * n];
+        float *h_B = new float[n * n];
+        float *h_C = new float[n * n];
+        
+        // Initialize matrices
+        initialize_matrix(h_A, values, n);
+        initialize_matrix(h_B, values, n);
+        
+        // Allocate device memory
+        float *d_A, *d_B, *d_C;
+        CHECK_CUDA_ERROR(cudaMalloc(&d_A, n * n * sizeof(float)));
+        CHECK_CUDA_ERROR(cudaMalloc(&d_B, n * n * sizeof(float)));
+        CHECK_CUDA_ERROR(cudaMalloc(&d_C, n * n * sizeof(float)));
+        
+        // Copy data to device
+        CHECK_CUDA_ERROR(cudaMemcpy(d_A, h_A, n * n * sizeof(float), cudaMemcpyHostToDevice));
+        CHECK_CUDA_ERROR(cudaMemcpy(d_B, h_B, n * n * sizeof(float), cudaMemcpyHostToDevice));
+        
+        // Create CUDA events for timing
+        cudaEvent_t start, stop;
+        CHECK_CUDA_ERROR(cudaEventCreate(&start));
+        CHECK_CUDA_ERROR(cudaEventCreate(&stop));
+        
+        // Start timer
+        CHECK_CUDA_ERROR(cudaEventRecord(start));
+        
+        // Call the matrix multiplication function for float
+        matmul_2(d_A, d_B, d_C, n, block_dim);
+        
+        // Stop timer
+        CHECK_CUDA_ERROR(cudaEventRecord(stop));
+        CHECK_CUDA_ERROR(cudaEventSynchronize(stop));
+        
+        // Calculate elapsed time
+        float milliseconds = 0;
+        CHECK_CUDA_ERROR(cudaEventElapsedTime(&milliseconds, start, stop));
+        
+        // Copy result back to host
+        CHECK_CUDA_ERROR(cudaMemcpy(h_C, d_C, n * n * sizeof(float), cudaMemcpyDeviceToHost));
+        
+        // Print the first and last elements of the result
+        std::cout << h_C[0] << std::endl;
+        std::cout << h_C[n * n - 1] << std::endl;
+        std::cout << milliseconds << std::endl;
+        
+        // Free device memory
+        CHECK_CUDA_ERROR(cudaFree(d_A));
+        CHECK_CUDA_ERROR(cudaFree(d_B));
+        CHECK_CUDA_ERROR(cudaFree(d_C));
+        
+        // Destroy CUDA events
+        CHECK_CUDA_ERROR(cudaEventDestroy(start));
+        CHECK_CUDA_ERROR(cudaEventDestroy(stop));
+        
+        // Free host memory
+        delete[] h_A;
+        delete[] h_B;
+        delete[] h_C;
+    }
+    
+    // ===== Test for double matrices =====
+    {
+        // Allocate host memory
+        double *h_A = new double[n * n];
+        double *h_B = new double[n * n];
+        double *h_C = new double[n * n];
+        
+        // Initialize matrices
+        initialize_matrix(h_A, values, n);
+        initialize_matrix(h_B, values, n);
+        
+        // Allocate device memory
+        double *d_A, *d_B, *d_C;
+        CHECK_CUDA_ERROR(cudaMalloc(&d_A, n * n * sizeof(double)));
+        CHECK_CUDA_ERROR(cudaMalloc(&d_B, n * n * sizeof(double)));
+        CHECK_CUDA_ERROR(cudaMalloc(&d_C, n * n * sizeof(double)));
+        
+        // Copy data to device
+        CHECK_CUDA_ERROR(cudaMemcpy(d_A, h_A, n * n * sizeof(double), cudaMemcpyHostToDevice));
+        CHECK_CUDA_ERROR(cudaMemcpy(d_B, h_B, n * n * sizeof(double), cudaMemcpyHostToDevice));
+        
+        // Create CUDA events for timing
+        cudaEvent_t start, stop;
+        CHECK_CUDA_ERROR(cudaEventCreate(&start));
+        CHECK_CUDA_ERROR(cudaEventCreate(&stop));
+        
+        // Start timer
+        CHECK_CUDA_ERROR(cudaEventRecord(start));
+        
+        // Call the matrix multiplication function for double
+        matmul_3(d_A, d_B, d_C, n, block_dim);
+        
+        // Stop timer
+        CHECK_CUDA_ERROR(cudaEventRecord(stop));
+        CHECK_CUDA_ERROR(cudaEventSynchronize(stop));
+        
+        // Calculate elapsed time
+        float milliseconds = 0;
+        CHECK_CUDA_ERROR(cudaEventElapsedTime(&milliseconds, start, stop));
+        
+        // Copy result back to host
+        CHECK_CUDA_ERROR(cudaMemcpy(h_C, d_C, n * n * sizeof(double), cudaMemcpyDeviceToHost));
+        
+        // Print the first and last elements of the result
+        std::cout << h_C[0] << std::endl;
+        std::cout << h_C[n * n - 1] << std::endl;
+        std::cout << milliseconds << std::endl;
+        
+        // Free device memory
+        CHECK_CUDA_ERROR(cudaFree(d_A));
+        CHECK_CUDA_ERROR(cudaFree(d_B));
+        CHECK_CUDA_ERROR(cudaFree(d_C));
+        
+        // Destroy CUDA events
+        CHECK_CUDA_ERROR(cudaEventDestroy(start));
+        CHECK_CUDA_ERROR(cudaEventDestroy(stop));
+        
+        // Free host memory
+        delete[] h_A;
+        delete[] h_B;
+        delete[] h_C;
+    }
+    
+    // Free source values
+    delete[] values;
+    
+    return 0;
 }

@@ -1,90 +1,101 @@
-// File: reduce.cu
 #include "reduce.cuh"
-#include <cuda_runtime.h>
+#include <stdio.h> // Add this include for printf
 
-// ----------------------------------------------------------------------------
-// Kernel 4: First Add During Load
-// Each thread loads two elements, sums them into shared memory, then does
-// a tree‐based in‐block reduction.
-// ----------------------------------------------------------------------------
-__global__
-void reduce_kernel(float *g_idata, float *g_odata, unsigned int n) {
+/**
+ * Kernel for parallel reduction with first add during global load optimization (Kernel 4)
+ * @param g_idata - Input array on device
+ * @param g_odata - Output array on device
+ * @param n - Number of elements in the input array
+ */
+__global__ void reduce_kernel(float *g_idata, float *g_odata, unsigned int n) {
+    // Allocate shared memory dynamically
     extern __shared__ float sdata[];
-
+    
+    // Thread and block index
     unsigned int tid = threadIdx.x;
-    unsigned int idx = blockIdx.x * (blockDim.x * 2) + tid;
-
-    // First add during global load:
-    float sum = 0.0f;
-    if (idx < n) {
-        sum = g_idata[idx];
-        if (idx + blockDim.x < n) {
-            sum += g_idata[idx + blockDim.x];
-        }
+    unsigned int i = blockIdx.x * blockDim.x * 2 + threadIdx.x;
+    
+    // Clear shared memory location
+    sdata[tid] = 0;
+    
+    // Load and add first element if in bounds
+    if (i < n) {
+        sdata[tid] = g_idata[i];
     }
-    sdata[tid] = sum;
+    
+    // Load and add second element if in bounds (first add during load)
+    if (i + blockDim.x < n) {
+        sdata[tid] += g_idata[i + blockDim.x];
+    }
+    
     __syncthreads();
-
-    // In‐block tree reduction:
+    
+    // Reduction in shared memory
     for (unsigned int s = blockDim.x / 2; s > 0; s >>= 1) {
         if (tid < s) {
             sdata[tid] += sdata[tid + s];
         }
         __syncthreads();
     }
-
-    // Write the block’s result
+    
+    // Write result for this block to global memory
     if (tid == 0) {
         g_odata[blockIdx.x] = sdata[0];
     }
 }
 
-// ----------------------------------------------------------------------------
-// Host‐side reduction driver
-//   *input, *output: addresses of device buffers
-//   N: initial length of *input
-//   threads_per_block: number of threads per block to launch
-//
-// Repeatedly invokes reduce_kernel until we have a single sum.
-// At the end *input is updated to point at the buffer whose [0] holds the total.
-// Ends with cudaDeviceSynchronize() for accurate timing.
-// ----------------------------------------------------------------------------
-__host__
-void reduce(float **input, float **output,
-            unsigned int N, unsigned int threads_per_block)
-{
-    unsigned int num_elements = N;
-    float *in_ptr  = *input;
-    float *out_ptr = *output;
-
-    // How many blocks for the first pass?
-    unsigned int blocks = (num_elements + threads_per_block * 2 - 1)
-                              / (threads_per_block * 2);
-
-    // Shared memory size per block
-    size_t shared_mem = threads_per_block * sizeof(float);
-
-    // Keep reducing until we get down to 1 block
-    while (blocks > 1) {
-        reduce_kernel<<<blocks, threads_per_block, shared_mem>>>(
-            in_ptr, out_ptr, num_elements);
-        cudaDeviceSynchronize();
-
-        num_elements = blocks;
-        blocks = (num_elements + threads_per_block * 2 - 1)
-                     / (threads_per_block * 2);
-
-        // swap input and output pointers
-        float *tmp = in_ptr;
-        in_ptr  = out_ptr;
-        out_ptr = tmp;
+/**
+ * Host function to perform complete reduction
+ * @param input - Input array on device memory
+ * @param output - Output array on device memory
+ * @param N - Number of elements in the input array
+ * @param threads_per_block - Number of threads per block
+ */
+__host__ void reduce(float **input, float **output, unsigned int N, unsigned int threads_per_block) {
+    // Input and output arrays for the current reduction step
+    float *current_input = *input;
+    float *current_output = *output;
+    
+    // Size of the current input array
+    unsigned int current_size = N;
+    
+    // Keep reducing until we have just one element
+    while (current_size > 1) {
+        // Number of blocks needed for the current kernel call
+        // Each thread processes 2 elements, so we need (current_size + 2*threads_per_block - 1)/(2*threads_per_block) blocks
+        unsigned int num_blocks = (current_size + 2 * threads_per_block - 1) / (2 * threads_per_block);
+        
+        // If the number of blocks is too large, limit it to avoid kernel launch failures
+        const unsigned int MAX_BLOCKS = 65535; // Maximum number of blocks in a grid dimension
+        if (num_blocks > MAX_BLOCKS) {
+            num_blocks = MAX_BLOCKS;
+        }
+        
+        // Launch the kernel with dynamically allocated shared memory
+        reduce_kernel<<<num_blocks, threads_per_block, threads_per_block * sizeof(float)>>>(
+            current_input, current_output, current_size);
+        
+        // Check for kernel launch errors
+        cudaError_t error = cudaGetLastError();
+        if (error != cudaSuccess) {
+            printf("CUDA error: %s\n", cudaGetErrorString(error));
+            break;
+        }
+        
+        // Update size for the next reduction
+        current_size = num_blocks;
+        
+        // Swap input and output pointers for the next iteration
+        float *temp = current_input;
+        current_input = current_output;
+        current_output = temp;
     }
-
-    // Final pass: blocks == 1
-    reduce_kernel<<<blocks, threads_per_block, shared_mem>>>(
-        in_ptr, out_ptr, num_elements);
+    
+    // If the final result is in the output buffer, copy it to the first element of the input
+    if (current_input != *input) {
+        cudaMemcpy(*input, current_input, sizeof(float), cudaMemcpyDeviceToDevice);
+    }
+    
+    // For timing purposes
     cudaDeviceSynchronize();
-
-    // Now out_ptr[0] holds the total sum; make *input point to it
-    *input = out_ptr;
 }
